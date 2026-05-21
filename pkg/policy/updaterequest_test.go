@@ -7,6 +7,9 @@ import (
 	kyvernov2 "github.com/kyverno/kyverno/api/kyverno/v2"
 	common "github.com/kyverno/kyverno/pkg/background/common"
 	"github.com/kyverno/kyverno/pkg/config"
+	engineapi "github.com/kyverno/kyverno/pkg/engine/api"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	policiesv1beta1 "github.com/kyverno/api/api/policies.kyverno.io/v1beta1"
 )
 
 func Test_newMutateUR(t *testing.T) {
@@ -76,6 +79,56 @@ func Test_newMutateUR(t *testing.T) {
 			}
 			if res.UID != tt.trigger.GetUID() {
 				t.Errorf("Spec.Resource.UID: %q, want: %q", res.UID, tt.trigger.GetUID())
+			}
+		})
+	}
+}
+
+func Test_newGenerateUR(t *testing.T) {
+	tests := []struct {
+		name       string
+		policy     engineapi.GenericPolicy
+		wantPolicy string
+		wantType   kyvernov2.RequestType
+	}{
+		{
+			name: "cluster policy: Spec.Policy is the bare policy name",
+			policy: engineapi.NewKyvernoPolicy(makeClusterPolicy("my-cluster-policy", nil)),
+			wantPolicy: "my-cluster-policy", 
+			wantType: kyvernov2.Generate,
+		},
+		{
+			name:       "generating policy sets Type to CELGenerate",
+			policy:     engineapi.NewGeneratingPolicy(&policiesv1beta1.GeneratingPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-celpolicy",
+				},
+			}),
+			wantPolicy: "test-celpolicy",
+			wantType:   kyvernov2.CELGenerate,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := newGenerateUR(tt.policy)
+
+			if result.Spec.Type != tt.wantType {
+				t.Errorf("wrong type. want: %v, got: %v", tt.wantType, result.Spec.Type)
+			}
+
+			if result.Spec.Policy != tt.wantPolicy {
+				t.Errorf("Spec.Policy: %v, want: %v", result.Spec.Policy, tt.wantPolicy)
+			}
+
+			// labels
+			wantLabels := common.GenerateLabelsSet(tt.wantPolicy)
+			for k, wantVal := range wantLabels {
+				if gotVal, ok := result.Labels[k]; !ok {
+					t.Errorf("Labels missing key %q", k)
+				} else if gotVal != wantVal {
+					t.Errorf("Labels[%q]: %q, want: %q", k, gotVal, wantVal)
+				}
 			}
 		})
 	}
